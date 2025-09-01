@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, Suspense } from 'react';
-import { projectData } from '@/lib/data';
 import { projectDataDetailed } from '@/lib/data-detailed';
 import { useSearchParams } from 'next/navigation';
 import TekomaLogo from '@/components/TekomaLogo';

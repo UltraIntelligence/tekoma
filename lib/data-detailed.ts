@@ -1,4 +1,22 @@
-export const projectDataDetailed = {
+interface DetailedTask {
+  id: string;
+  code: string;
+  title: string;
+  time: number;
+  source: string;
+  justification: string;
+  wixSteps?: string[];
+  action?: string;
+}
+
+interface Phase {
+  id: string;
+  title: string;
+  tasks: DetailedTask[];
+  isUserSubmitted?: boolean;
+}
+
+export const projectDataDetailed: { phases: Phase[] } = {
   phases: [
     {
       id: 'phase1',
