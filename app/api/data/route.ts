@@ -1,7 +1,25 @@
-import { kv } from '@vercel/kv';
 import { NextResponse } from 'next/server';
 
-// For development, we'll use in-memory storage if KV is not available
+// For Upstash Redis (if available)
+let redis: any = null;
+
+// For Vercel KV (if available)  
+let kv: any = null;
+
+// Initialize Redis client if environment variables are present
+if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  const { Redis } = require('@upstash/redis');
+  redis = new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN,
+  });
+} else if (process.env.KV_URL) {
+  // Try Vercel KV if available
+  const kvModule = require('@vercel/kv');
+  kv = kvModule.kv;
+}
+
+// Fallback in-memory storage for local development
 let inMemoryStore: any = {
   tasks: {},
   comments: {},
@@ -10,8 +28,15 @@ let inMemoryStore: any = {
 
 export async function GET() {
   try {
-    // Try to use Vercel KV if available
-    if (process.env.KV_URL) {
+    // Try to use Upstash Redis if available
+    if (redis) {
+      const tasks = await redis.get('tasks') || {};
+      const comments = await redis.get('comments') || {};
+      const userTasks = await redis.get('userTasks') || [];
+      
+      return NextResponse.json({ tasks, comments, userTasks });
+    } else if (kv) {
+      // Try to use Vercel KV if available
       const tasks = await kv.get('tasks') || {};
       const comments = await kv.get('comments') || {};
       const userTasks = await kv.get('userTasks') || [];
@@ -23,7 +48,7 @@ export async function GET() {
     }
   } catch (error) {
     console.error('Error fetching data:', error);
-    // Return in-memory store on error
+    // If there's an error with KV/Redis, fallback to in-memory storage
     return NextResponse.json(inMemoryStore);
   }
 }
@@ -32,8 +57,13 @@ export async function POST(request: Request) {
   try {
     const { tasks, comments, userTasks } = await request.json();
     
-    // Try to use Vercel KV if available
-    if (process.env.KV_URL) {
+    // Try to use Upstash Redis if available
+    if (redis) {
+      if (tasks !== undefined) await redis.set('tasks', tasks);
+      if (comments !== undefined) await redis.set('comments', comments);
+      if (userTasks !== undefined) await redis.set('userTasks', userTasks);
+    } else if (kv) {
+      // Try to use Vercel KV if available
       if (tasks !== undefined) await kv.set('tasks', tasks);
       if (comments !== undefined) await kv.set('comments', comments);
       if (userTasks !== undefined) await kv.set('userTasks', userTasks);
