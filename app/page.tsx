@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { projectData } from '@/lib/data';
+import { projectDataDetailed } from '@/lib/data-detailed';
+import { useSearchParams } from 'next/navigation';
 import TekomaLogo from '@/components/TekomaLogo';
 
 interface Task {
@@ -14,6 +16,8 @@ interface Task {
   author?: string;
   description?: string;
   timestamp?: number;
+  wixSteps?: string[];
+  action?: string;
 }
 
 interface Phase {
@@ -36,6 +40,12 @@ interface AppState {
 }
 
 export default function Home() {
+  const searchParams = useSearchParams();
+  const mode = searchParams.get('mode');
+  const isInternal = mode === 'internal';
+  // Always use detailed data for better information, just hide Wix steps for client view
+  const data = projectDataDetailed;
+  
   const [appState, setAppState] = useState<AppState>({
     tasks: {},
     comments: {},
@@ -138,7 +148,7 @@ export default function Home() {
     let totalTasks = 0;
     let completedTasks = 0;
 
-    projectData.phases.forEach(phase => {
+    data.phases.forEach(phase => {
       if (!phase.isUserSubmitted) {
         phase.tasks.forEach(task => {
           totalTasks++;
@@ -200,7 +210,7 @@ export default function Home() {
       </div>
 
       <div className="main-content">
-        {projectData.phases.map(phase => {
+        {data.phases.map(phase => {
           const phaseTasks = phase.isUserSubmitted ? appState.userTasks : phase.tasks;
           const completedInPhase = phaseTasks.filter(t => appState.tasks[t.id]).length;
 
@@ -276,12 +286,34 @@ export default function Home() {
                           <div className="task-title">
                             <span className="task-code">{task.code}</span>
                             {task.title}
+                            {isInternal && task.time && (
+                              <span style={{ marginLeft: '10px', fontSize: '0.85rem', color: '#6b7280' }}>
+                                ({task.time} min)
+                              </span>
+                            )}
                           </div>
                           <div className="task-meta">
                             <span>Source: {task.source}</span>
                           </div>
                           {task.justification && (
                             <div className="task-justification">{task.justification}</div>
+                          )}
+                          {task.action && (
+                            <div style={{ marginTop: '10px', padding: '10px', background: '#f3f4f6', borderRadius: '6px', fontSize: '0.9rem' }}>
+                              <strong>Action:</strong> {task.action}
+                            </div>
+                          )}
+                          {isInternal && task.wixSteps && task.wixSteps.length > 0 && (
+                            <div style={{ marginTop: '15px', padding: '15px', background: '#e0f2fe', borderRadius: '8px', border: '1px solid #0284c7' }}>
+                              <div style={{ fontWeight: '600', marginBottom: '10px', color: '#0c4a6e' }}>
+                                Wix Execution Steps:
+                              </div>
+                              <ol style={{ marginLeft: '20px', color: '#334155', fontSize: '0.9rem', lineHeight: '1.8' }}>
+                                {task.wixSteps.map((step, idx) => (
+                                  <li key={idx} style={{ marginBottom: '5px' }}>{step}</li>
+                                ))}
+                              </ol>
+                            </div>
                           )}
                           <div className="comments-section">
                             <div className="comments-list">
