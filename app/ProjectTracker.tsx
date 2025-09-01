@@ -52,17 +52,62 @@ function ProjectTrackerContent() {
   });
   const [loading, setLoading] = useState(true);
   const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({});
+  const [seenTaskIds, setSeenTaskIds] = useState<Set<string>>(new Set());
+  const [newTaskCount, setNewTaskCount] = useState(0);
+  const [lastCheckTime, setLastCheckTime] = useState(Date.now());
 
-  // Load data from API
+  // Load data from API and set up polling
   useEffect(() => {
+    // Load seen tasks from localStorage
+    const storedSeenTasks = localStorage.getItem('seenTaskIds');
+    if (storedSeenTasks) {
+      setSeenTaskIds(new Set(JSON.parse(storedSeenTasks)));
+    }
+    
+    // Load initial data
     loadData();
+    
+    // Set up polling for new tasks (every 30 seconds)
+    const interval = setInterval(() => {
+      loadData(true);
+    }, 30000);
+    
+    return () => clearInterval(interval);
   }, []);
+  
+  // Update new task count when data changes
+  useEffect(() => {
+    const unseenTasks = appState.userTasks.filter(task => !seenTaskIds.has(task.id));
+    setNewTaskCount(unseenTasks.length);
+  }, [appState.userTasks, seenTaskIds]);
 
-  const loadData = async () => {
+  const loadData = async (isPolling = false) => {
     try {
       const response = await fetch('/api/data');
       const data = await response.json();
+      
+      // Check for new tasks since last check
+      if (isPolling && data.userTasks) {
+        const newTasks = data.userTasks.filter((task: Task) => 
+          task.timestamp && task.timestamp > lastCheckTime
+        );
+        
+        if (newTasks.length > 0) {
+          // Flash a subtle animation on Phase 7 header
+          const phase7Element = document.getElementById('phase7');
+          if (phase7Element) {
+            phase7Element.classList.add('new-activity');
+            setTimeout(() => {
+              phase7Element.classList.remove('new-activity');
+            }, 3000);
+          }
+        }
+      }
+      
       setAppState(data);
+      if (!isPolling) {
+        setLastCheckTime(Date.now());
+      }
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -90,6 +135,16 @@ function ProjectTrackerContent() {
       ...prev,
       [phaseId]: !prev[phaseId]
     }));
+    
+    // Mark all user tasks as seen when opening Phase 7
+    if (phaseId === 'phase7' && !expandedPhases[phaseId]) {
+      const newSeenIds = new Set(seenTaskIds);
+      appState.userTasks.forEach(task => {
+        newSeenIds.add(task.id);
+      });
+      setSeenTaskIds(newSeenIds);
+      localStorage.setItem('seenTaskIds', JSON.stringify(Array.from(newSeenIds)));
+    }
   };
 
   const toggleTask = (taskId: string) => {
@@ -114,6 +169,18 @@ function ProjectTrackerContent() {
       [taskId]: [...(appState.comments[taskId] || []), newComment]
     };
 
+    saveData({ comments: newComments });
+  };
+
+  const deleteComment = (taskId: string, commentIndex: number) => {
+    const taskComments = [...(appState.comments[taskId] || [])];
+    taskComments.splice(commentIndex, 1);
+    
+    const newComments = {
+      ...appState.comments,
+      [taskId]: taskComments
+    };
+    
     saveData({ comments: newComments });
   };
 
@@ -224,6 +291,9 @@ function ProjectTrackerContent() {
                     ▶
                   </span>
                   {phase.title}
+                  {phase.id === 'phase7' && newTaskCount > 0 && (
+                    <span className="notification-badge">{newTaskCount}</span>
+                  )}
                 </div>
                 <div className="phase-meta">
                   <span>
@@ -266,12 +336,62 @@ function ProjectTrackerContent() {
 
                 {phase.isUserSubmitted ? (
                   appState.userTasks.map(task => (
-                    <div className="user-task" key={task.id}>
-                      <div className="user-task-header">
-                        <div className="user-task-title">{task.title}</div>
-                        <div className="user-task-author">Requested by: {task.author}</div>
+                    <div className={`task ${!seenTaskIds.has(task.id) ? 'new-task' : ''}`} key={task.id}>
+                      <div className="task-header">
+                        <input
+                          type="checkbox"
+                          className="task-checkbox"
+                          checked={appState.tasks[task.id] || false}
+                          onChange={() => toggleTask(task.id)}
+                        />
+                        <div className="task-content">
+                          <div className="task-title">
+                            <span className="task-code">USER-REQ</span>
+                            {task.title}
+                          </div>
+                          <div className="task-meta">
+                            <span>Source: {task.author} - {new Date(task.timestamp || Date.now()).toLocaleDateString()}</span>
+                          </div>
+                          {task.description && (
+                            <div className="task-justification">{task.description}</div>
+                          )}
+                          <div className="comments-section">
+                            <div className="comments-list">
+                              {(appState.comments[task.id] || []).map((comment, idx) => (
+                                <div className="comment" key={idx}>
+                                  <div className="comment-header">
+                                    <span className="comment-author">{comment.author}</span>
+                                    <span className="comment-time">
+                                      {new Date(comment.timestamp).toLocaleDateString()}
+                                    </span>
+                                  </div>
+                                  <div className="comment-text">{comment.text}</div>
+                                  <button 
+                                    className="comment-delete"
+                                    onClick={() => deleteComment(task.id, idx)}
+                                    title="Delete comment"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                            <form className="add-comment" onSubmit={(e) => {
+                              e.preventDefault();
+                              const form = e.target as HTMLFormElement;
+                              const name = (form.elements.namedItem(`name-${task.id}`) as HTMLInputElement).value;
+                              const text = (form.elements.namedItem(`comment-${task.id}`) as HTMLTextAreaElement).value;
+                              
+                              addComment(task.id, name, text);
+                              form.reset();
+                            }}>
+                              <input type="text" name={`name-${task.id}`} placeholder="Your name" />
+                              <textarea name={`comment-${task.id}`} placeholder="Add a note..."></textarea>
+                              <button type="submit">Add Note</button>
+                            </form>
+                          </div>
+                        </div>
                       </div>
-                      <div className="user-task-description">{task.description}</div>
                     </div>
                   ))
                 ) : (
@@ -328,6 +448,13 @@ function ProjectTrackerContent() {
                                     </span>
                                   </div>
                                   <div className="comment-text">{comment.text}</div>
+                                  <button 
+                                    className="comment-delete"
+                                    onClick={() => deleteComment(task.id, idx)}
+                                    title="Delete comment"
+                                  >
+                                    ×
+                                  </button>
                                 </div>
                               ))}
                             </div>
