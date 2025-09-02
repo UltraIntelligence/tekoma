@@ -156,8 +156,21 @@ function ProjectTrackerContent() {
   
   const loadData = async (isPolling = false) => {
     try {
-      const response = await fetch('/api/data');
+      const response = await fetch('/api/data?t=' + Date.now(), {
+        cache: 'no-store', // Force fresh data
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
       const data = await response.json();
+      console.log('Loaded data from server:', { 
+        comments: data.comments,
+        commentCount: Object.values(data.comments || {}).reduce((sum: number, c: any) => sum + c.length, 0),
+        tasks: data.tasks,
+        userTasks: data.userTasks,
+        taskCount: data.userTasks?.length || 0 
+      });
       
       // Check for new tasks since last check
       if (isPolling && data.userTasks) {
@@ -177,7 +190,15 @@ function ProjectTrackerContent() {
         }
       }
       
-      setAppState(data);
+      // Force update the state with server data
+      setAppState({
+        tasks: data.tasks || {},
+        comments: data.comments || {},
+        userTasks: data.userTasks || []
+      });
+      
+      console.log('Updated app state with server data');
+      
       if (!isPolling) {
         setLastCheckTime(Date.now());
         
@@ -206,16 +227,28 @@ function ProjectTrackerContent() {
 
   const saveData = async (newState: Partial<AppState>) => {
     const updatedState = { ...appState, ...newState };
+    console.log('Saving data to server:', updatedState);
     setAppState(updatedState);
     
     try {
-      await fetch('/api/data', {
+      const response = await fetch('/api/data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedState)
       });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('Server error:', error);
+        alert(error.error || 'Failed to save data');
+        // Reload data from server to sync state
+        await loadData();
+      } else {
+        console.log('Data saved successfully');
+      }
     } catch (error) {
       console.error('Error saving data:', error);
+      alert('Failed to save data. Please try again.');
     }
   };
 
@@ -275,6 +308,9 @@ function ProjectTrackerContent() {
       ...appState.comments,
       [taskId]: [...existingComments, newComment]
     };
+    
+    console.log(`Adding comment to task ${taskId}:`, newComment);
+    console.log('Updated comments for task:', newComments[taskId]);
 
     saveData({ comments: newComments });
   };
