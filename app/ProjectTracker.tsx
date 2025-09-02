@@ -157,16 +157,34 @@ function ProjectTrackerContent() {
       alert('Please enter both your name and a comment.');
       return;
     }
+    
+    // Client-side length validation
+    if (author.length > 50) {
+      alert('Name is too long (maximum 50 characters)');
+      return;
+    }
+    
+    if (text.length > 300) {
+      alert('Comment is too long (maximum 300 characters)');
+      return;
+    }
+    
+    // Check comment limit
+    const existingComments = appState.comments[taskId] || [];
+    if (existingComments.length >= 50) {
+      alert('Maximum number of comments reached for this task (50).');
+      return;
+    }
 
     const newComment: Comment = {
-      author,
-      text,
+      author: author.substring(0, 50), // Extra safety
+      text: text.substring(0, 300),
       timestamp: Date.now()
     };
 
     const newComments = {
       ...appState.comments,
-      [taskId]: [...(appState.comments[taskId] || []), newComment]
+      [taskId]: [...existingComments, newComment]
     };
 
     saveData({ comments: newComments });
@@ -184,17 +202,45 @@ function ProjectTrackerContent() {
     saveData({ comments: newComments });
   };
 
-  const submitNewTask = (name: string, taskName: string, description: string) => {
+  const submitNewTask = (name: string, taskName: string, description: string, honeypot: string) => {
+    // Check honeypot (anti-bot)
+    if (honeypot) {
+      // Bot detected - silently fail
+      return;
+    }
+    
     if (!name.trim() || !taskName.trim() || !description.trim()) {
       alert('Please fill in all fields to submit a task request.');
+      return;
+    }
+    
+    // Client-side length validation
+    if (taskName.length > 100) {
+      alert('Task name is too long (maximum 100 characters)');
+      return;
+    }
+    
+    if (description.length > 500) {
+      alert('Description is too long (maximum 500 characters)');
+      return;
+    }
+    
+    if (name.length > 50) {
+      alert('Name is too long (maximum 50 characters)');
+      return;
+    }
+    
+    // Check if we've hit the task limit
+    if (appState.userTasks.length >= 100) {
+      alert('Maximum number of task submissions reached (100). Please contact an administrator.');
       return;
     }
 
     const newTask: Task = {
       id: 'user-' + Date.now(),
-      title: taskName,
-      author: name,
-      description: description,
+      title: taskName.substring(0, 100), // Extra safety
+      author: name.substring(0, 50),
+      description: description.substring(0, 500),
       timestamp: Date.now()
     };
 
@@ -313,21 +359,45 @@ function ProjectTrackerContent() {
                       const name = (form.elements.namedItem('requester-name') as HTMLInputElement).value;
                       const taskName = (form.elements.namedItem('task-name') as HTMLInputElement).value;
                       const description = (form.elements.namedItem('task-description') as HTMLTextAreaElement).value;
+                      const honeypot = (form.elements.namedItem('website') as HTMLInputElement).value;
                       
-                      submitNewTask(name, taskName, description);
+                      submitNewTask(name, taskName, description, honeypot);
                       form.reset();
                     }}>
+                      {/* Honeypot field - hidden from users, visible to bots */}
+                      <input 
+                        type="text" 
+                        name="website" 
+                        style={{ position: 'absolute', left: '-9999px' }}
+                        tabIndex={-1}
+                        autoComplete="off"
+                        aria-hidden="true"
+                      />
                       <div className="form-group">
                         <label htmlFor="requester-name">Your Name</label>
-                        <input type="text" name="requester-name" placeholder="Enter your name" />
+                        <input 
+                          type="text" 
+                          name="requester-name" 
+                          placeholder="Enter your name" 
+                          maxLength={50}
+                        />
                       </div>
                       <div className="form-group">
                         <label htmlFor="task-name">Task Name</label>
-                        <input type="text" name="task-name" placeholder="Brief title for the task" />
+                        <input 
+                          type="text" 
+                          name="task-name" 
+                          placeholder="Brief title for the task (max 100 characters)" 
+                          maxLength={100}
+                        />
                       </div>
                       <div className="form-group">
                         <label htmlFor="task-description">Task Description</label>
-                        <textarea name="task-description" placeholder="Describe what needs to be done and why"></textarea>
+                        <textarea 
+                          name="task-description" 
+                          placeholder="Describe what needs to be done and why (max 500 characters)" 
+                          maxLength={500}
+                        ></textarea>
                       </div>
                       <button type="submit" className="form-submit">Submit Task Request</button>
                     </form>
@@ -385,8 +455,8 @@ function ProjectTrackerContent() {
                               addComment(task.id, name, text);
                               form.reset();
                             }}>
-                              <input type="text" name={`name-${task.id}`} placeholder="Your name" />
-                              <textarea name={`comment-${task.id}`} placeholder="Add a note..."></textarea>
+                              <input type="text" name={`name-${task.id}`} placeholder="Your name" maxLength={50} />
+                              <textarea name={`comment-${task.id}`} placeholder="Add a note... (max 300 characters)" maxLength={300}></textarea>
                               <button type="submit">Add Note</button>
                             </form>
                           </div>
@@ -467,8 +537,8 @@ function ProjectTrackerContent() {
                               addComment(task.id, name, text);
                               form.reset();
                             }}>
-                              <input type="text" name={`name-${task.id}`} placeholder="Your name" />
-                              <textarea name={`comment-${task.id}`} placeholder="Add a note..."></textarea>
+                              <input type="text" name={`name-${task.id}`} placeholder="Your name" maxLength={50} />
+                              <textarea name={`comment-${task.id}`} placeholder="Add a note... (max 300 characters)" maxLength={300}></textarea>
                               <button type="submit">Add Note</button>
                             </form>
                           </div>
