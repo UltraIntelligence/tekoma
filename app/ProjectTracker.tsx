@@ -296,7 +296,7 @@ function ProjectTrackerContent() {
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
             <button className="request-button" onClick={() => loadData()} title="Refresh data from server">
-              🔄 Refresh
+              Refresh
             </button>
             <button className="request-button" onClick={requestNewTask}>
               Request New Task
