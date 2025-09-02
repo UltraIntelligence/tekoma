@@ -34,7 +34,7 @@ const rateLimitStore = new Map<string, { submissions: number; comments: number; 
 const LIMITS = {
   MAX_TITLE_LENGTH: 100,
   MAX_DESCRIPTION_LENGTH: 500,
-  MAX_COMMENT_LENGTH: 300,
+  MAX_COMMENT_LENGTH: 1000,
   MAX_NAME_LENGTH: 50,
   MAX_USER_TASKS: 100,
   MAX_COMMENTS_PER_TASK: 50,

@@ -165,8 +165,8 @@ function ProjectTrackerContent() {
       return;
     }
     
-    if (text.length > 300) {
-      alert('Comment is too long (maximum 300 characters)');
+    if (text.length > 1000) {
+      alert('Comment is too long (maximum 1000 characters)');
       return;
     }
     
@@ -179,7 +179,7 @@ function ProjectTrackerContent() {
 
     const newComment: Comment = {
       author: author.substring(0, 50), // Extra safety
-      text: text.substring(0, 300),
+      text: text.substring(0, 1000),
       timestamp: Date.now()
     };
 
@@ -462,7 +462,7 @@ function ProjectTrackerContent() {
                               form.reset();
                             }}>
                               <input type="text" name={`name-${task.id}`} placeholder="Your name" maxLength={50} />
-                              <textarea name={`comment-${task.id}`} placeholder="Add a note... (max 300 characters)" maxLength={300}></textarea>
+                              <textarea name={`comment-${task.id}`} placeholder="Add a note... (max 1000 characters)" maxLength={1000}></textarea>
                               <button type="submit">Add Note</button>
                             </form>
                           </div>
@@ -544,7 +544,7 @@ function ProjectTrackerContent() {
                               form.reset();
                             }}>
                               <input type="text" name={`name-${task.id}`} placeholder="Your name" maxLength={50} />
-                              <textarea name={`comment-${task.id}`} placeholder="Add a note... (max 300 characters)" maxLength={300}></textarea>
+                              <textarea name={`comment-${task.id}`} placeholder="Add a note... (max 1000 characters)" maxLength={1000}></textarea>
                               <button type="submit">Add Note</button>
                             </form>
                           </div>
