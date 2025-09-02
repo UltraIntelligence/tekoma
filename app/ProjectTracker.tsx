@@ -202,7 +202,12 @@ function ProjectTrackerContent() {
       if (!isPolling) {
         setLastCheckTime(Date.now());
         
-        // Reset activity indicators when data is refreshed
+        // Log activity before clearing if there was any
+        if (hasNewActivity && activitySummary) {
+          console.log('Activity detected before refresh:', activitySummary);
+        }
+        
+        // Reset activity indicators after refresh
         setHasNewActivity(false);
         setPhaseActivity({});
         setActivitySummary('');
@@ -419,10 +424,23 @@ function ProjectTrackerContent() {
             </p>
           </div>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            {isInternal && hasNewActivity && (
+              <div style={{
+                padding: '8px 12px',
+                backgroundColor: '#fef3c7',
+                border: '1px solid #f59e0b',
+                borderRadius: '6px',
+                fontSize: '0.85rem',
+                color: '#92400e',
+                maxWidth: '300px'
+              }}>
+                <strong>New activity:</strong> {activitySummary}
+              </div>
+            )}
             <button 
               className="request-button" 
               onClick={() => loadData()} 
-              title={isInternal && hasNewActivity ? `New activity detected: ${activitySummary}` : "Refresh data from server"}
+              title={isInternal && hasNewActivity ? `Click to refresh and see changes` : "Refresh data from server"}
               style={{ position: 'relative' }}
             >
               Refresh
@@ -435,7 +453,8 @@ function ProjectTrackerContent() {
                   height: '8px',
                   backgroundColor: '#f97316',
                   borderRadius: '50%',
-                  border: '2px solid white'
+                  border: '2px solid white',
+                  animation: 'pulse 2s infinite'
                 }}></span>
               )}
             </button>
