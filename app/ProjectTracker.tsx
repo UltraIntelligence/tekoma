@@ -55,6 +55,10 @@ function ProjectTrackerContent() {
   const [seenTaskIds, setSeenTaskIds] = useState<Set<string>>(new Set());
   const [newTaskCount, setNewTaskCount] = useState(0);
   const [lastCheckTime, setLastCheckTime] = useState(Date.now());
+  const [hasNewActivity, setHasNewActivity] = useState(false);
+  const [phaseActivity, setPhaseActivity] = useState<Record<string, boolean>>({});
+  const [activitySummary, setActivitySummary] = useState<string>('');
+  const [lastKnownState, setLastKnownState] = useState<{ comments: number; completed: number }>({ comments: 0, completed: 0 });
 
   // Load data from API
   useEffect(() => {
@@ -67,14 +71,15 @@ function ProjectTrackerContent() {
     // Load initial data
     loadData();
     
-    // POLLING DISABLED: Was causing comments to disappear
-    // To re-enable: uncomment the lines below
-    // const interval = setInterval(() => {
-    //   loadData(true);
-    // }, 30000);
-    // 
-    // return () => clearInterval(interval);
-  }, []);
+    // Activity checking for internal view only
+    if (isInternal) {
+      const interval = setInterval(async () => {
+        checkForActivity();
+      }, 30000); // Check every 30 seconds
+      
+      return () => clearInterval(interval);
+    }
+  }, [isInternal]);
   
   // Update new task count when data changes
   useEffect(() => {
@@ -82,6 +87,73 @@ function ProjectTrackerContent() {
     setNewTaskCount(unseenTasks.length);
   }, [appState.userTasks, seenTaskIds]);
 
+  // Check for new activity without updating the UI
+  const checkForActivity = async () => {
+    try {
+      const response = await fetch('/api/data');
+      const data = await response.json();
+      
+      // Count total comments and completed tasks
+      let totalComments = 0;
+      let totalCompleted = 0;
+      const newPhaseActivity: Record<string, boolean> = {};
+      const changes: string[] = [];
+      
+      // Check each phase for changes
+      projectDataDetailed.phases.forEach(phase => {
+        if (!phase.isUserSubmitted) {
+          let phaseHasChanges = false;
+          
+          phase.tasks.forEach(task => {
+            // Check for new comments
+            const taskComments = data.comments[task.id] || [];
+            totalComments += taskComments.length;
+            
+            // Check task completion
+            if (data.tasks[task.id]) {
+              totalCompleted++;
+            }
+          });
+          
+          // Compare with last known state for this phase
+          const oldPhaseComments = phase.tasks.reduce((sum, task) => 
+            sum + (appState.comments[task.id]?.length || 0), 0);
+          const newPhaseComments = phase.tasks.reduce((sum, task) => 
+            sum + (data.comments[task.id]?.length || 0), 0);
+          
+          if (newPhaseComments !== oldPhaseComments) {
+            phaseHasChanges = true;
+            const diff = newPhaseComments - oldPhaseComments;
+            if (diff > 0) {
+              changes.push(`${phase.title}: ${diff} new comment${diff > 1 ? 's' : ''}`);
+            }
+          }
+          
+          if (phaseHasChanges) {
+            newPhaseActivity[phase.id] = true;
+          }
+        }
+      });
+      
+      // Check user submissions
+      if (data.userTasks && data.userTasks.length > appState.userTasks.length) {
+        newPhaseActivity['phase7'] = true;
+        const diff = data.userTasks.length - appState.userTasks.length;
+        changes.push(`User Submissions: ${diff} new task${diff > 1 ? 's' : ''}`);
+      }
+      
+      // Update activity indicators
+      if (totalComments !== lastKnownState.comments || totalCompleted !== lastKnownState.completed || 
+          data.userTasks?.length !== appState.userTasks.length) {
+        setHasNewActivity(true);
+        setPhaseActivity(newPhaseActivity);
+        setActivitySummary(changes.join(', '));
+      }
+    } catch (error) {
+      console.error('Error checking for activity:', error);
+    }
+  };
+  
   const loadData = async (isPolling = false) => {
     try {
       const response = await fetch('/api/data');
@@ -108,6 +180,22 @@ function ProjectTrackerContent() {
       setAppState(data);
       if (!isPolling) {
         setLastCheckTime(Date.now());
+        
+        // Reset activity indicators when data is refreshed
+        setHasNewActivity(false);
+        setPhaseActivity({});
+        setActivitySummary('');
+        
+        // Update last known state for activity detection
+        let totalComments = 0;
+        let totalCompleted = 0;
+        Object.values(data.comments || {}).forEach((comments: any) => {
+          totalComments += comments.length;
+        });
+        Object.values(data.tasks || {}).forEach((completed: any) => {
+          if (completed) totalCompleted++;
+        });
+        setLastKnownState({ comments: totalComments, completed: totalCompleted });
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -294,9 +382,26 @@ function ProjectTrackerContent() {
               {isInternal && <span style={{ marginLeft: '10px', color: '#ff9947' }}>[Internal View]</span>}
             </p>
           </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button className="request-button" onClick={() => loadData()} title="Refresh data from server">
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <button 
+              className="request-button" 
+              onClick={() => loadData()} 
+              title={isInternal && hasNewActivity ? `New activity detected: ${activitySummary}` : "Refresh data from server"}
+              style={{ position: 'relative' }}
+            >
               Refresh
+              {isInternal && hasNewActivity && (
+                <span style={{
+                  position: 'absolute',
+                  top: '-4px',
+                  right: '-4px',
+                  width: '8px',
+                  height: '8px',
+                  backgroundColor: '#f97316',
+                  borderRadius: '50%',
+                  border: '2px solid white'
+                }}></span>
+              )}
             </button>
             <button className="request-button" onClick={requestNewTask}>
               Request New Task
@@ -345,6 +450,17 @@ function ProjectTrackerContent() {
                   {phase.title}
                   {phase.id === 'phase7' && newTaskCount > 0 && (
                     <span className="notification-badge">{newTaskCount}</span>
+                  )}
+                  {isInternal && phaseActivity[phase.id] && (
+                    <span style={{
+                      display: 'inline-block',
+                      width: '6px',
+                      height: '6px',
+                      backgroundColor: '#f97316',
+                      borderRadius: '50%',
+                      marginLeft: '8px',
+                      verticalAlign: 'middle'
+                    }}></span>
                   )}
                 </div>
                 <div className="phase-meta">
