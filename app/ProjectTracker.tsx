@@ -56,7 +56,7 @@ function ProjectTrackerContent() {
   const [newTaskCount, setNewTaskCount] = useState(0);
   const [lastCheckTime, setLastCheckTime] = useState(Date.now());
 
-  // Load data from API and set up polling
+  // Load data from API
   useEffect(() => {
     // Load seen tasks from localStorage
     const storedSeenTasks = localStorage.getItem('seenTaskIds');
@@ -67,12 +67,13 @@ function ProjectTrackerContent() {
     // Load initial data
     loadData();
     
-    // Set up polling for new tasks (every 30 seconds)
-    const interval = setInterval(() => {
-      loadData(true);
-    }, 30000);
-    
-    return () => clearInterval(interval);
+    // POLLING DISABLED: Was causing comments to disappear
+    // To re-enable: uncomment the lines below
+    // const interval = setInterval(() => {
+    //   loadData(true);
+    // }, 30000);
+    // 
+    // return () => clearInterval(interval);
   }, []);
   
   // Update new task count when data changes
@@ -293,9 +294,14 @@ function ProjectTrackerContent() {
               {isInternal && <span style={{ marginLeft: '10px', color: '#ff9947' }}>[Internal View]</span>}
             </p>
           </div>
-          <button className="request-button" onClick={requestNewTask}>
-            Request New Task
-          </button>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button className="request-button" onClick={() => loadData()} title="Refresh data from server">
+              🔄 Refresh
+            </button>
+            <button className="request-button" onClick={requestNewTask}>
+              Request New Task
+            </button>
+          </div>
         </div>
       </div>
 
