@@ -44,8 +44,8 @@ const LIMITS = {
 };
 
 // Get client IP address
-function getClientIp(): string {
-  const hdrs = headers();
+async function getClientIp(): Promise<string> {
+  const hdrs = await headers();
   const forwardedFor = hdrs.get('x-forwarded-for');
   const realIp = hdrs.get('x-real-ip');
   
@@ -176,7 +176,7 @@ export async function POST(request: Request) {
     const { tasks, comments, userTasks } = data;
     
     // Get client IP for rate limiting
-    const clientIp = getClientIp();
+    const clientIp = await getClientIp();
     
     // Determine if this is a new submission or comment
     let isNewSubmission = false;
