@@ -24,7 +24,9 @@ if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) 
 let inMemoryStore: any = {
   tasks: {},
   comments: {},
-  userTasks: []
+  userTasks: [],
+  taskUpdates: {},
+  activityLog: []
 };
 
 // Rate limiting storage (in-memory)
@@ -150,15 +152,19 @@ export async function GET() {
       const tasks = await redis.get('tasks') || {};
       const comments = await redis.get('comments') || {};
       const userTasks = await redis.get('userTasks') || [];
+      const taskUpdates = await redis.get('taskUpdates') || {};
+      const activityLog = await redis.get('activityLog') || [];
       
-      return NextResponse.json({ tasks, comments, userTasks });
+      return NextResponse.json({ tasks, comments, userTasks, taskUpdates, activityLog });
     } else if (kv) {
       // Try to use Vercel KV if available
       const tasks = await kv.get('tasks') || {};
       const comments = await kv.get('comments') || {};
       const userTasks = await kv.get('userTasks') || [];
+      const taskUpdates = await kv.get('taskUpdates') || {};
+      const activityLog = await kv.get('activityLog') || [];
       
-      return NextResponse.json({ tasks, comments, userTasks });
+      return NextResponse.json({ tasks, comments, userTasks, taskUpdates, activityLog });
     } else {
       // Fallback to in-memory storage for local development
       return NextResponse.json(inMemoryStore);
@@ -173,7 +179,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const data = await request.json();
-    const { tasks, comments, userTasks } = data;
+    const { tasks, comments, userTasks, taskUpdates, activityLog } = data;
     
     // Get client IP for rate limiting
     const clientIp = await getClientIp();
@@ -237,16 +243,33 @@ export async function POST(request: Request) {
       if (tasks !== undefined) await redis.set('tasks', tasks);
       if (comments !== undefined) await redis.set('comments', comments);
       if (userTasks !== undefined) await redis.set('userTasks', userTasks);
+      if (taskUpdates !== undefined) await redis.set('taskUpdates', taskUpdates);
+      if (activityLog !== undefined) {
+        // Keep only last 100 activity entries to prevent unbounded growth
+        const trimmedLog = activityLog.slice(-100);
+        await redis.set('activityLog', trimmedLog);
+      }
     } else if (kv) {
       // Try to use Vercel KV if available
       if (tasks !== undefined) await kv.set('tasks', tasks);
       if (comments !== undefined) await kv.set('comments', comments);
       if (userTasks !== undefined) await kv.set('userTasks', userTasks);
+      if (taskUpdates !== undefined) await kv.set('taskUpdates', taskUpdates);
+      if (activityLog !== undefined) {
+        // Keep only last 100 activity entries to prevent unbounded growth
+        const trimmedLog = activityLog.slice(-100);
+        await kv.set('activityLog', trimmedLog);
+      }
     } else {
       // Fallback to in-memory storage for local development
       if (tasks !== undefined) inMemoryStore.tasks = tasks;
       if (comments !== undefined) inMemoryStore.comments = comments;
       if (userTasks !== undefined) inMemoryStore.userTasks = userTasks;
+      if (taskUpdates !== undefined) inMemoryStore.taskUpdates = taskUpdates;
+      if (activityLog !== undefined) {
+        // Keep only last 100 activity entries to prevent unbounded growth
+        inMemoryStore.activityLog = activityLog.slice(-100);
+      }
     }
     
     return NextResponse.json({ success: true });

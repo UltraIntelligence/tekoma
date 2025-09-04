@@ -36,6 +36,20 @@ interface AppState {
   tasks: Record<string, boolean>;
   comments: Record<string, Comment[]>;
   userTasks: Task[];
+  taskUpdates?: Record<string, { completed: boolean; updatedBy: string; timestamp: number }>;
+  activityLog?: ActivityEntry[];
+}
+
+interface ActivityEntry {
+  id: string;
+  type: 'task_completed' | 'task_uncompleted' | 'comment_added' | 'comment_deleted' | 'user_task_submitted';
+  taskId: string;
+  taskTitle: string;
+  phaseId: string;
+  phaseTitle: string;
+  updatedBy: string;
+  timestamp: number;
+  details?: string;
 }
 
 function ProjectTrackerContent() {
@@ -59,6 +73,10 @@ function ProjectTrackerContent() {
   const [phaseActivity, setPhaseActivity] = useState<Record<string, boolean>>({});
   const [activitySummary, setActivitySummary] = useState<string>('');
   const [lastKnownState, setLastKnownState] = useState<{ comments: number; completed: number }>({ comments: 0, completed: 0 });
+  const [currentUser, setCurrentUser] = useState<string>('');
+  const [dismissedActivityIds, setDismissedActivityIds] = useState<Set<string>>(new Set());
+  const [recentActivities, setRecentActivities] = useState<ActivityEntry[]>([]);
+  const [showActivityPanel, setShowActivityPanel] = useState(false);
 
   // Load data from API
   useEffect(() => {
@@ -66,6 +84,25 @@ function ProjectTrackerContent() {
     const storedSeenTasks = localStorage.getItem('seenTaskIds');
     if (storedSeenTasks) {
       setSeenTaskIds(new Set(JSON.parse(storedSeenTasks)));
+    }
+    
+    // For internal view, load user and dismissed activities
+    if (isInternal) {
+      // Load or set current user
+      const storedUser = localStorage.getItem('tekoma_current_user');
+      if (!storedUser) {
+        const userName = prompt('Please enter your name for tracking updates:') || 'Anonymous';
+        localStorage.setItem('tekoma_current_user', userName);
+        setCurrentUser(userName);
+      } else {
+        setCurrentUser(storedUser);
+      }
+      
+      // Load dismissed activity IDs
+      const dismissed = localStorage.getItem('tekoma_dismissed_activities');
+      if (dismissed) {
+        setDismissedActivityIds(new Set(JSON.parse(dismissed)));
+      }
     }
     
     // Load initial data
@@ -93,61 +130,54 @@ function ProjectTrackerContent() {
       const response = await fetch('/api/data');
       const data = await response.json();
       
-      // Count total comments and completed tasks
-      let totalComments = 0;
-      let totalCompleted = 0;
-      const newPhaseActivity: Record<string, boolean> = {};
-      const changes: string[] = [];
-      
-      // Check each phase for changes
-      projectDataDetailed.phases.forEach(phase => {
-        if (!phase.isUserSubmitted) {
-          let phaseHasChanges = false;
-          
-          phase.tasks.forEach(task => {
-            // Check for new comments
-            const taskComments = data.comments[task.id] || [];
-            totalComments += taskComments.length;
-            
-            // Check task completion
-            if (data.tasks[task.id]) {
-              totalCompleted++;
-            }
-          });
-          
-          // Compare with last known state for this phase
-          const oldPhaseComments = phase.tasks.reduce((sum, task) => 
-            sum + (appState.comments[task.id]?.length || 0), 0);
-          const newPhaseComments = phase.tasks.reduce((sum, task) => 
-            sum + (data.comments[task.id]?.length || 0), 0);
-          
-          if (newPhaseComments !== oldPhaseComments) {
-            phaseHasChanges = true;
-            const diff = newPhaseComments - oldPhaseComments;
-            if (diff > 0) {
-              changes.push(`${phase.title}: ${diff} new comment${diff > 1 ? 's' : ''}`);
-            }
-          }
-          
-          if (phaseHasChanges) {
-            newPhaseActivity[phase.id] = true;
-          }
-        }
-      });
-      
-      // Check user submissions
-      if (data.userTasks && data.userTasks.length > appState.userTasks.length) {
-        newPhaseActivity['phase7'] = true;
-        const diff = data.userTasks.length - appState.userTasks.length;
-        changes.push(`User Submissions: ${diff} new task${diff > 1 ? 's' : ''}`);
+      // Get activity log and filter out current user's actions and dismissed items
+      const newActivities: ActivityEntry[] = [];
+      if (data.activityLog) {
+        const relevantActivities = data.activityLog.filter((activity: ActivityEntry) => {
+          // Filter out current user's actions
+          if (activity.updatedBy === currentUser) return false;
+          // Filter out dismissed activities
+          if (dismissedActivityIds.has(activity.id)) return false;
+          // Only show recent activities (last 24 hours)
+          const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+          return activity.timestamp > dayAgo;
+        });
+        
+        newActivities.push(...relevantActivities);
       }
       
-      // Update activity indicators
-      if (totalComments !== lastKnownState.comments || totalCompleted !== lastKnownState.completed || 
-          data.userTasks?.length !== appState.userTasks.length) {
+      // Set activity indicators if there are new activities
+      if (newActivities.length > 0) {
+        setRecentActivities(newActivities);
         setHasNewActivity(true);
-        setPhaseActivity(newPhaseActivity);
-        setActivitySummary(changes.join(', '));
+        
+        // Build summary
+        const summary = newActivities.slice(0, 3).map(a => {
+          switch (a.type) {
+            case 'task_completed':
+              return `${a.updatedBy} completed "${a.taskTitle}"`;
+            case 'comment_added':
+              return `${a.updatedBy} commented on "${a.taskTitle}"`;
+            case 'user_task_submitted':
+              return `${a.updatedBy} submitted "${a.taskTitle}"`;
+            default:
+              return `${a.updatedBy} updated "${a.taskTitle}"`;
+          }
+        }).join('; ');
+        
+        setActivitySummary(summary + (newActivities.length > 3 ? ` and ${newActivities.length - 3} more...` : ''));
+        
+        // Mark phases with activity
+        const phaseMap: Record<string, boolean> = {};
+        newActivities.forEach(activity => {
+          phaseMap[activity.phaseId] = true;
+        });
+        setPhaseActivity(phaseMap);
+      } else {
+        setHasNewActivity(false);
+        setRecentActivities([]);
+        setActivitySummary('');
+        setPhaseActivity({});
       }
     } catch (error) {
       console.error('Error checking for activity:', error);
@@ -275,8 +305,53 @@ function ProjectTrackerContent() {
   };
 
   const toggleTask = (taskId: string) => {
-    const newTasks = { ...appState.tasks, [taskId]: !appState.tasks[taskId] };
-    saveData({ tasks: newTasks });
+    const isCompleted = !appState.tasks[taskId];
+    const newTasks = { ...appState.tasks, [taskId]: isCompleted };
+    
+    // For internal view, track who made the change
+    let updates = {};
+    if (isInternal && currentUser) {
+      // Find task details for activity log
+      let taskTitle = '';
+      let phaseId = '';
+      let phaseTitle = '';
+      
+      for (const phase of data.phases) {
+        const task = phase.tasks.find(t => t.id === taskId);
+        if (task) {
+          taskTitle = task.title;
+          phaseId = phase.id;
+          phaseTitle = phase.title;
+          break;
+        }
+      }
+      
+      // Create activity entry
+      const activityEntry: ActivityEntry = {
+        id: `activity-${Date.now()}-${Math.random()}`,
+        type: isCompleted ? 'task_completed' : 'task_uncompleted',
+        taskId,
+        taskTitle,
+        phaseId,
+        phaseTitle,
+        updatedBy: currentUser,
+        timestamp: Date.now()
+      };
+      
+      const currentLog = appState.activityLog || [];
+      updates = {
+        tasks: newTasks,
+        taskUpdates: {
+          ...appState.taskUpdates,
+          [taskId]: { completed: isCompleted, updatedBy: currentUser, timestamp: Date.now() }
+        },
+        activityLog: [...currentLog, activityEntry]
+      };
+    } else {
+      updates = { tasks: newTasks };
+    }
+    
+    saveData(updates);
   };
 
   const addComment = (taskId: string, author: string, text: string) => {
@@ -316,8 +391,53 @@ function ProjectTrackerContent() {
     
     console.log(`Adding comment to task ${taskId}:`, newComment);
     console.log('Updated comments for task:', newComments[taskId]);
+    
+    // For internal view, track activity
+    let updates: Partial<AppState> = { comments: newComments };
+    if (isInternal) {
+      // Find task details for activity log
+      let taskTitle = '';
+      let phaseId = '';
+      let phaseTitle = '';
+      
+      for (const phase of data.phases) {
+        const task = phase.tasks.find(t => t.id === taskId);
+        if (task) {
+          taskTitle = task.title;
+          phaseId = phase.id;
+          phaseTitle = phase.title;
+          break;
+        }
+      }
+      
+      // Check user tasks if not found in regular phases
+      if (!taskTitle && appState.userTasks) {
+        const userTask = appState.userTasks.find(t => t.id === taskId);
+        if (userTask) {
+          taskTitle = userTask.title;
+          phaseId = 'phase7';
+          phaseTitle = 'Phase 7: User Submissions';
+        }
+      }
+      
+      // Create activity entry
+      const activityEntry: ActivityEntry = {
+        id: `activity-${Date.now()}-${Math.random()}`,
+        type: 'comment_added',
+        taskId,
+        taskTitle,
+        phaseId,
+        phaseTitle,
+        updatedBy: author, // Use the comment author
+        timestamp: Date.now(),
+        details: text.substring(0, 100) + (text.length > 100 ? '...' : '')
+      };
+      
+      const currentLog = appState.activityLog || [];
+      updates.activityLog = [...currentLog, activityEntry];
+    }
 
-    saveData({ comments: newComments });
+    saveData(updates);
   };
 
   const deleteComment = (taskId: string, commentIndex: number) => {
@@ -385,6 +505,38 @@ function ProjectTrackerContent() {
       document.getElementById('phase7')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 100);
   };
+  
+  const dismissActivity = (activityId: string) => {
+    const newDismissed = new Set(dismissedActivityIds);
+    newDismissed.add(activityId);
+    setDismissedActivityIds(newDismissed);
+    localStorage.setItem('tekoma_dismissed_activities', JSON.stringify(Array.from(newDismissed)));
+    
+    // Remove from recent activities
+    setRecentActivities(prev => prev.filter(a => a.id !== activityId));
+    
+    // Check if any activities remain
+    const remainingActivities = recentActivities.filter(a => a.id !== activityId);
+    if (remainingActivities.length === 0) {
+      setHasNewActivity(false);
+      setActivitySummary('');
+      setPhaseActivity({});
+    }
+  };
+  
+  const dismissAllActivities = () => {
+    const newDismissed = new Set(dismissedActivityIds);
+    recentActivities.forEach(activity => {
+      newDismissed.add(activity.id);
+    });
+    setDismissedActivityIds(newDismissed);
+    localStorage.setItem('tekoma_dismissed_activities', JSON.stringify(Array.from(newDismissed)));
+    
+    setRecentActivities([]);
+    setHasNewActivity(false);
+    setActivitySummary('');
+    setPhaseActivity({});
+  };
 
   const calculateStats = () => {
     let totalTasks = 0;
@@ -426,15 +578,22 @@ function ProjectTrackerContent() {
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
             {isInternal && hasNewActivity && (
               <div style={{
+                position: 'relative',
                 padding: '8px 12px',
                 backgroundColor: '#fef3c7',
                 border: '1px solid #f59e0b',
                 borderRadius: '6px',
                 fontSize: '0.85rem',
                 color: '#92400e',
-                maxWidth: '300px'
-              }}>
-                <strong>New activity:</strong> {activitySummary}
+                maxWidth: '400px',
+                cursor: 'pointer'
+              }}
+              onClick={() => setShowActivityPanel(!showActivityPanel)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <strong>New activity ({recentActivities.length}):</strong>
+                  <span style={{ flex: 1 }}>{activitySummary}</span>
+                  <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>Click to view</span>
+                </div>
               </div>
             )}
             <button 
@@ -464,6 +623,122 @@ function ProjectTrackerContent() {
           </div>
         </div>
       </div>
+
+      {isInternal && showActivityPanel && recentActivities.length > 0 && (
+        <div style={{
+          position: 'fixed',
+          top: '80px',
+          right: '20px',
+          width: '400px',
+          maxHeight: '500px',
+          backgroundColor: 'white',
+          border: '1px solid #e5e7eb',
+          borderRadius: '8px',
+          boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
+          zIndex: 1000,
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column'
+        }}>
+          <div style={{
+            padding: '15px',
+            borderBottom: '1px solid #e5e7eb',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            backgroundColor: '#f9fafb'
+          }}>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Recent Activity</h3>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={dismissAllActivities}
+                style={{
+                  padding: '4px 8px',
+                  fontSize: '0.8rem',
+                  backgroundColor: '#ef4444',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer'
+                }}
+              >
+                Clear All
+              </button>
+              <button
+                onClick={() => setShowActivityPanel(false)}
+                style={{
+                  padding: '4px 8px',
+                  fontSize: '1rem',
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                ×
+              </button>
+            </div>
+          </div>
+          <div style={{ 
+            flex: 1, 
+            overflowY: 'auto', 
+            padding: '10px'
+          }}>
+            {recentActivities.map(activity => (
+              <div
+                key={activity.id}
+                style={{
+                  padding: '10px',
+                  marginBottom: '8px',
+                  backgroundColor: '#f9fafb',
+                  borderRadius: '6px',
+                  border: '1px solid #e5e7eb',
+                  fontSize: '0.85rem',
+                  position: 'relative'
+                }}
+              >
+                <button
+                  onClick={() => dismissActivity(activity.id)}
+                  style={{
+                    position: 'absolute',
+                    top: '5px',
+                    right: '5px',
+                    backgroundColor: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    color: '#6b7280'
+                  }}
+                  title="Dismiss this notification"
+                >
+                  ×
+                </button>
+                <div style={{ fontWeight: 600, marginBottom: '4px', color: '#1f2937' }}>
+                  {activity.updatedBy}
+                  {activity.type === 'task_completed' && ' completed a task'}
+                  {activity.type === 'task_uncompleted' && ' uncompleted a task'}
+                  {activity.type === 'comment_added' && ' added a comment'}
+                  {activity.type === 'comment_deleted' && ' deleted a comment'}
+                  {activity.type === 'user_task_submitted' && ' submitted a new task'}
+                </div>
+                <div style={{ color: '#4b5563', marginBottom: '2px' }}>
+                  <strong>Task:</strong> {activity.taskTitle}
+                </div>
+                <div style={{ color: '#6b7280', fontSize: '0.8rem', marginBottom: '2px' }}>
+                  <strong>Phase:</strong> {activity.phaseTitle}
+                </div>
+                {activity.details && (
+                  <div style={{ color: '#6b7280', fontSize: '0.8rem', marginTop: '4px', fontStyle: 'italic' }}>
+                    "{activity.details}"
+                  </div>
+                )}
+                <div style={{ color: '#9ca3af', fontSize: '0.75rem', marginTop: '4px' }}>
+                  {new Date(activity.timestamp).toLocaleString()}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="progress-section">
         <div className="progress-content">
